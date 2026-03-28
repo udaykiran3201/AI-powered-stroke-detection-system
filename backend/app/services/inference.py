@@ -122,20 +122,18 @@ class InferenceService:
         if is_normal:
             stroke_type = StrokeType.NONE
             severity = SeverityLevel.NORMAL
-            max_prob = random.uniform(0.05, 0.45)
-            # Ensure probabilities stay below the threshold
-            probs = { k: random.uniform(0.01, 0.4) for k in ["epidural", "intraparenchymal", "intraventricular", "subarachnoid", "subdural", "ischemic"] }
+            max_prob = random.uniform(0.05, 0.35)
+            # Ensure probabilities stay well below the 0.5 threshold
+            probs = { k: random.uniform(0.01, 0.3) for k in ["epidural", "intraparenchymal", "intraventricular", "subarachnoid", "subdural", "ischemic"] }
         else:
-            # Definite stroke mocks
+            # Definite stroke mocks - Always High Confidence
             stroke_type = StrokeType.ISCHEMIC if is_isch else (StrokeType.HEMORRHAGIC if is_hem else random.choice([StrokeType.ISCHEMIC, StrokeType.HEMORRHAGIC]))
-            # Bias away from "Moderate" range (0.5-0.75) to be more definitive
-            if random.random() < 0.7:
-                max_prob = random.uniform(0.76, 0.98) # High/Critical
-            else:
-                max_prob = random.uniform(0.55, 0.72) # Moderate
+            
+            # Use High/Critical confidence only
+            max_prob = random.uniform(0.82, 0.99)
                 
             severity = self._compute_severity(max_prob, stroke_type)
-            probs = { k: random.uniform(0.01, 0.2) for k in ["epidural", "intraparenchymal", "intraventricular", "subarachnoid", "subdural", "ischemic"] }
+            probs = { k: random.uniform(0.01, 0.15) for k in ["epidural", "intraparenchymal", "intraventricular", "subarachnoid", "subdural", "ischemic"] }
             main_key = "ischemic" if stroke_type == StrokeType.ISCHEMIC else "intraparenchymal"
             probs[main_key] = max_prob
 
@@ -210,13 +208,10 @@ class InferenceService:
     def _compute_severity(self, confidence: float, stroke_type: StrokeType) -> SeverityLevel:
         if stroke_type == StrokeType.NONE:
             return SeverityLevel.NORMAL
-        if confidence >= 0.9:
+        # Any stroke detected is considered High or Critical severity
+        if confidence >= 0.85:
             return SeverityLevel.CRITICAL
-        if confidence >= 0.75:
-            return SeverityLevel.HIGH
-        if confidence >= 0.5:
-            return SeverityLevel.MODERATE
-        return SeverityLevel.LOW
+        return SeverityLevel.HIGH
 
     def _generate_recommendation(self, classification: ClassificationResult, segmentation: SegmentationResult) -> str:
         if classification.stroke_type == StrokeType.NONE:
