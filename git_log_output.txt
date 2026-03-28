@@ -1,0 +1,11 @@
+﻿9373d47::::fix: resolve 500 error - align demo InferenceService with Pydantic schemas, fix CORS wildcard in render.yaml
+63ebb6d::::fix: add Vercel origin to CORS and handle 500 errors with CORS headers
+f8b1152::::Confirmed: Switching to Ultra-Light Demo Mode
+c3b743f::::Extreme memory optimization for 512MB RAM
+5322f5d::::Fix final CORS and image path mapping for production
+2bedabe::::Configure frontend for cross-domain API access
+a9afa63::::Force PyTorch CPU version to stay within Render Free Tier limits
+a821579:::: Modified the main, inference and classifier
+14c536f::::modified the docker files
+b49baa0::::Modified the gitignore file
+0f1a92f::::first commit
