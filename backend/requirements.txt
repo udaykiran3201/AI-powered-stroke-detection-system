@@ -1,0 +1,40 @@
+# ---- Core Framework ----
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic>=2.0
+pydantic-settings
+
+# ---- Deep Learning ----
+torch
+torchvision
+timm
+
+# ---- Computer Vision & Imaging ----
+opencv-python-headless
+Pillow
+pydicom
+scikit-image
+
+# ---- Data / Science ----
+numpy
+pandas
+scikit-learn
+
+# ---- Cloud / Storage ----
+boto3
+
+# ---- Logging / Monitoring ----
+loguru
+
+# ---- Testing ----
+pytest
+httpx
+anyio
+pytest-anyio
+
+# ---- Utilities ----
+python-jose[cryptography]
+passlib[bcrypt]
+python-dotenv
+aiofiles

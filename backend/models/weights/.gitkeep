@@ -1,0 +1,4 @@
+# Placeholder — model weights are not committed to version control.
+# Place trained .pth files here:
+#   - stroke_classifier.pth
+#   - unet_segmentation.pth
