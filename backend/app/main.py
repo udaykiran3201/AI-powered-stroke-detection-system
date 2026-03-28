@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down …")
 
 
-def _get_cors_origin(request: Request) -> str | None:
+def _get_cors_origin(request: Request):
     """Return the request origin if it's in the allowed list."""
     origin = request.headers.get("origin")
     if origin and origin in settings.allowed_origins_list:
