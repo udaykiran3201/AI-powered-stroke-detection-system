@@ -36,9 +36,7 @@ async def lifespan(app: FastAPI):
     # Ensure upload directory exists
     os.makedirs(settings.upload_dir, exist_ok=True)
 
-    # Pre-load models in the background to avoid 503 errors on first request
-    asyncio.create_task(asyncio.to_thread(inference_service.load_models))
-    
+    # Models are now strictly lazy-loaded on demand to stay within Render's 512MB RAM tier.
     yield  # ← application is running
 
     logger.info("Shutting down …")
@@ -85,6 +83,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # ── Root Health Check (Required for some health check monitors) ──────────
+    @app.get("/", tags=["Health"])
+    async def root():
+        return {"status": "online", "app": settings.app_name}
 
     # ── Exception handler for proper CORS ──────────
     @app.exception_handler(Exception)
