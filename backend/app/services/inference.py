@@ -1,10 +1,4 @@
-import os
-import uuid
-import time
-import random
-import numpy as np
-import cv2
-import torch
+import io
 from typing import Optional, Dict
 from loguru import logger
 
@@ -16,13 +10,10 @@ from app.schemas.schemas import (
     StrokeType,
     SeverityLevel,
 )
-from app.models.classifier import load_classifier, predict as classify_predict
-from app.services.preprocessing import (
-    read_standard_image,
-    read_dicom,
-    preprocess_for_classification,
-    create_overlay,
-)
+
+# Standard imports like numpy, cv2, os are relatively fast.
+# Heavy imports like torch, torchvision, timm, and our custom models 
+# are moved inside methods to avoid blocking Render's startup/port-scanning.
 
 settings = get_settings()
 
@@ -47,8 +38,9 @@ class InferenceService:
         if self._models_loaded:
             return
 
+        from app.models.classifier import load_classifier
         try:
-            logger.info("Attempting to load real classification model...")
+            logger.info("Attempting to load real classification model (first run)...")
             self.classifier = load_classifier(
                 weights_path=settings.classification_model_path,
                 device="cpu",
@@ -58,14 +50,18 @@ class InferenceService:
         except Exception as e:
             logger.warning(f"Could not load real models: {e}. Using Smart Demo Mode.")
             self.use_demo_fallback = True
-            self._models_loaded = True # Mark as "ready" even if fallback
+            self._models_loaded = True
 
     @property
     def models_loaded(self) -> bool:
         return self._models_loaded
 
-    def _read_scan(self, file_bytes: bytes, filename: str) -> np.ndarray:
+    def _read_scan(self, file_bytes: bytes, filename: str) -> "np.ndarray":
         """Read CT scan bytes into a 2-D numpy array."""
+        import os
+        import numpy as np
+        from app.services.preprocessing import read_standard_image, read_dicom
+        
         ext = os.path.splitext(filename)[1].lower()
         try:
             if ext in (".dcm", ".dicom"):
@@ -75,8 +71,13 @@ class InferenceService:
             # Absolute fallback if image reading fails
             return np.zeros((256, 256), dtype=np.float32)
 
-    def run_classification(self, pixel_array: np.ndarray, scan_id: str, filename: str) -> ClassificationResult:
+    def run_classification(self, pixel_array: "np.ndarray", scan_id: str, filename: str) -> ClassificationResult:
         """Run real classification if possible, else smarter mock."""
+        import time
+        import random
+        from app.services.preprocessing import preprocess_for_classification
+        from app.models.classifier import predict as classify_predict
+        
         t0 = time.perf_counter()
         
         if self.classifier is not None and not self.use_demo_fallback:
@@ -113,7 +114,10 @@ class InferenceService:
                 logger.error(f"Inference error: {e}. Falling back to smart mock.")
                 self.use_demo_fallback = True
 
-        # Smart Demo Fallback
+        # Smart Demo Fallback (Randomized mocks)
+        import random
+        import time
+        
         is_normal = any(kw in filename.lower() for kw in ["normal", "healthy", "neg", "clean", "cntrl"])
         is_isch = "isch" in filename.lower()
         is_hem = "hem" in filename.lower() or "bleed" in filename.lower()
@@ -151,6 +155,13 @@ class InferenceService:
 
     def run_segmentation(self, pixel_array, scan_id: str, stroke_type: StrokeType) -> SegmentationResult:
         """Mock segmentation since weights are missing, but make it realistic."""
+        import os
+        import time
+        import random
+        import cv2
+        import numpy as np
+        from app.services.preprocessing import create_overlay
+        
         t0 = time.perf_counter()
         
         if stroke_type == StrokeType.NONE:
@@ -183,6 +194,7 @@ class InferenceService:
 
     def diagnose(self, file_bytes: bytes, filename: str) -> DiagnosisReport:
         """Full diagnostic pipeline."""
+        import uuid
         if not self._models_loaded:
             self.load_models()
 
