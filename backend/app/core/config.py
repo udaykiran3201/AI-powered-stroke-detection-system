@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     segmentation_model_path: str = "models/weights/unet_segmentation.pth"
 
     # ---- CORS ----
-    allowed_origins: str = "*,http://localhost:3000,http://localhost:5173"
+    allowed_origins: str = "https://ai-powered-stroke-detection-system.vercel.app,http://localhost:3000,http://localhost:5173"
 
     # ---- Upload ----
     upload_dir: str = "uploads"

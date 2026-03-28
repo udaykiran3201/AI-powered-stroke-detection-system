@@ -9,10 +9,12 @@ Creates and configures the FastAPI application with:
 """
 
 import os
+import traceback
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
@@ -40,6 +42,14 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down …")
 
 
+def _get_cors_origin(request: Request) -> str | None:
+    """Return the request origin if it's in the allowed list."""
+    origin = request.headers.get("origin")
+    if origin and origin in settings.allowed_origins_list:
+        return origin
+    return None
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
@@ -62,6 +72,25 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # ── Catch-all exception handler ──────────
+    # FastAPI's CORSMiddleware does NOT add CORS headers to unhandled 500
+    # responses, so the browser reports a CORS error instead of the real
+    # server error.  This handler ensures every error response carries the
+    # required Access-Control-Allow-* headers.
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        logger.error(f"Unhandled exception: {exc}\n{traceback.format_exc()}")
+        origin = _get_cors_origin(request)
+        headers = {}
+        if origin:
+            headers["Access-Control-Allow-Origin"] = origin
+            headers["Access-Control-Allow-Credentials"] = "true"
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Internal server error: {str(exc)}"},
+            headers=headers,
+        )
 
     # ── Static files (result images) ─────────
     os.makedirs(settings.upload_dir, exist_ok=True)
