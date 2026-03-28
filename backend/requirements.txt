@@ -1,3 +1,5 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 # ---- Core Framework ----
 fastapi
 uvicorn[standard]
@@ -5,7 +7,7 @@ python-multipart
 pydantic>=2.0
 pydantic-settings
 
-# ---- Deep Learning ----
+# ---- Deep Learning (CPU Only Version) ----
 torch
 torchvision
 timm
