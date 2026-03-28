@@ -2,7 +2,7 @@
 Stroke Detection System — FastAPI Application Factory
 
 Creates and configures the FastAPI application with:
-  • CORS middleware
+  • CORS middleware (supports Vercel previews)
   • Static file serving for result images
   • All API routers
   • Model loading on startup
@@ -10,9 +10,10 @@ Creates and configures the FastAPI application with:
 
 import os
 import traceback
+import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -35,18 +36,28 @@ async def lifespan(app: FastAPI):
     # Ensure upload directory exists
     os.makedirs(settings.upload_dir, exist_ok=True)
 
-    # Model loading is now handled lazily in the inference service
-    # to avoid Render startup timeouts or OOM on the 512MB free tier.
+    # Pre-load models in the background to avoid 503 errors on first request
+    asyncio.create_task(asyncio.to_thread(inference_service.load_models))
+    
     yield  # ← application is running
 
     logger.info("Shutting down …")
 
 
 def _get_cors_origin(request: Request):
-    """Return the request origin if it's in the allowed list."""
+    """Return the request origin if it's in the allowed list or is a Vercel app."""
     origin = request.headers.get("origin")
-    if origin and origin in settings.allowed_origins_list:
+    if not origin:
+        return None
+    
+    # Check against allowed list
+    if origin in settings.allowed_origins_list:
         return origin
+    
+    # Allow all vercel apps
+    if origin.endswith(".vercel.app"):
+        return origin
+        
     return None
 
 
@@ -65,30 +76,37 @@ def create_app() -> FastAPI:
     )
 
     # ── CORS ─────────────────────────────────
+    # Using allow_origin_regex for Vercel subdomains
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins_list,
+        allow_origin_regex="https://.*\\.vercel\\.app",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    # ── Catch-all exception handler ──────────
-    # FastAPI's CORSMiddleware does NOT add CORS headers to unhandled 500
-    # responses, so the browser reports a CORS error instead of the real
-    # server error.  This handler ensures every error response carries the
-    # required Access-Control-Allow-* headers.
+    # ── Exception handler for proper CORS ──────────
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
-        logger.error(f"Unhandled exception: {exc}\n{traceback.format_exc()}")
+        # Determine status code and detail
+        if isinstance(exc, HTTPException):
+            status_code = exc.status_code
+            detail = exc.detail
+        else:
+            logger.error(f"Unhandled exception: {exc}\n{traceback.format_exc()}")
+            status_code = 500
+            detail = f"Internal server error: {str(exc)}"
+            
         origin = _get_cors_origin(request)
         headers = {}
         if origin:
             headers["Access-Control-Allow-Origin"] = origin
             headers["Access-Control-Allow-Credentials"] = "true"
+            
         return JSONResponse(
-            status_code=500,
-            content={"detail": f"Internal server error: {str(exc)}"},
+            status_code=status_code,
+            content={"detail": detail},
             headers=headers,
         )
 
