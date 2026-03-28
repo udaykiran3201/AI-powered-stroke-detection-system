@@ -154,6 +154,10 @@ class InferenceService:
     # ── Full pipeline ───────────────────────
     def diagnose(self, file_bytes: bytes, filename: str) -> DiagnosisReport:
         """End-to-end diagnosis: classify + segment + report."""
+        if not self.models_loaded:
+            logger.info("On-demand model loading triggered...")
+            self.load_models()
+
         scan_id = str(uuid.uuid4())
         logger.info(f"Starting diagnosis — scan_id={scan_id}, file={filename}")
 

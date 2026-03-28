@@ -33,13 +33,8 @@ async def lifespan(app: FastAPI):
     # Ensure upload directory exists
     os.makedirs(settings.upload_dir, exist_ok=True)
 
-    # Load ML models
-    try:
-        inference_service.load_models()
-    except Exception as e:
-        logger.error(f"Model loading failed: {e}")
-        logger.warning("API will start but inference endpoints will return 503")
-
+    # Model loading is now handled lazily in the inference service
+    # to avoid Render startup timeouts or OOM on the 512MB free tier.
     yield  # ← application is running
 
     logger.info("Shutting down …")

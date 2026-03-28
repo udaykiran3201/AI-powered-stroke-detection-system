@@ -35,7 +35,7 @@ class StrokeClassifier(nn.Module):
 
     def __init__(
         self,
-        backbone_name: str = "efficientnet_b3",
+        backbone_name: str = "efficientnet_b0",
         num_classes: int = NUM_CLASSES,
         pretrained: bool = True,
         dropout: float = 0.3,
@@ -65,7 +65,7 @@ class StrokeClassifier(nn.Module):
 def load_classifier(
     weights_path: Optional[str] = None,
     device: str = "cpu",
-    backbone_name: str = "efficientnet_b3",
+    backbone_name: str = "efficientnet_b0",
 ) -> StrokeClassifier:
     """Instantiate the classifier and optionally load saved weights."""
     model = StrokeClassifier(backbone_name=backbone_name, pretrained=(weights_path is None))
