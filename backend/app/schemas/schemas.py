@@ -6,7 +6,7 @@ Request / response models used across the API.
 
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -84,7 +84,7 @@ class DiagnosisReport(BaseModel):
         ..., description="True when severity is CRITICAL or HIGH"
     )
     recommendation: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.utcnow())
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ──────────────────────────────────────────────

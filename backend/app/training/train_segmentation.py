@@ -44,10 +44,21 @@ class SegmentationDataset(Dataset):
         self.mask_dir = mask_dir
         self.transform = transform
         self.target_size = target_size
+        # Only include files that exist in BOTH images and masks directories
+        image_files = set(os.listdir(image_dir))
+        mask_files = set(os.listdir(mask_dir))
+        valid_files = image_files.intersection(mask_files)
+        
         self.filenames = sorted([
-            f for f in os.listdir(image_dir)
+            f for f in valid_files
             if f.lower().endswith((".png", ".jpg", ".jpeg", ".tif"))
         ])
+
+        if not self.filenames:
+            logger.warning(
+                f"No matching file pairs found in {image_dir} and {mask_dir}! "
+                "Segmentation training will likely fail."
+            )
 
     def __len__(self):
         return len(self.filenames)

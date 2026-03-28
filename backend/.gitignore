@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
 dist/
 build/
@@ -10,9 +11,17 @@ build/
 venv/
 .venv/
 env/
+ENV/
 
 # Environment variables
 .env
+.env.*
+!.env.example
+
+# Datasets (Large folders)
+data/
+data/raw/
+data/processed/
 
 # IDE
 .vscode/
@@ -20,10 +29,12 @@ env/
 *.swp
 *.swo
 
-# Model weights (large files)
-models/weights/*.pth
-models/weights/*.pt
-models/weights/*.h5
+# Model weights (Large binary files)
+models/weights/
+*.pth
+*.pt
+*.h5
+*.onnx
 
 # Uploads
 uploads/*
@@ -36,3 +47,4 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+Desktop.ini
