@@ -81,15 +81,18 @@ class InferenceService:
         
         if self.classifier is not None and not self.use_demo_fallback:
             try:
-                tensor = preprocess_for_classification(pixel_array)
+                # Identify if it's DICOM from filename ext
+                is_dicom = filename.lower().endswith((".dcm", ".dicom"))
+                
+                # Use matches-training preprocessing
+                tensor = preprocess_for_classification(pixel_array, is_dicom=is_dicom)
                 probs = classify_predict(self.classifier, tensor, device="cpu")
                 
                 max_class = max(probs, key=probs.get)
                 max_prob = probs[max_class]
                 
-                # Increased threshold (0.5 instead of 0.4) to reduce false positives
-                # If models are uncertain, we now prefer to say NONE.
-                if max_prob < 0.5:
+                # Balanced threshold (0.45) for real models
+                if max_prob < 0.45:
                     stroke_type = StrokeType.NONE
                 elif max_class == "ischemic":
                     stroke_type = StrokeType.ISCHEMIC

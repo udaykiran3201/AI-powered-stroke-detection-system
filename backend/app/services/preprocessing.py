@@ -68,14 +68,24 @@ def read_standard_image(file_bytes: bytes) -> np.ndarray:
 def preprocess_for_classification(
     pixel_array: np.ndarray,
     target_size: Tuple[int, int] = MODEL_INPUT_SIZE,
+    is_dicom: bool = False,
 ) -> torch.Tensor:
     """
     Pre-process a 2-D CT slice for the EfficientNet classifier.
 
-    Returns a (1, 3, H, W) tensor (3-channel duplicate for pretrained backbone).
+    - DICOM files: Apply brain windowing as in training's data processing.
+    - Standard images: Resize without windowing (matches training's process_image).
     """
-    windowed = apply_brain_window(pixel_array)
-    resized = cv2.resize(windowed, target_size, interpolation=cv2.INTER_AREA)
+    if is_dicom:
+        # For DICOM, we must apply the brain window as done in preprocess_data.py
+        processed = apply_brain_window(pixel_array)
+    else:
+        # For standard images, training used straight Image.resize.
+        # We ensure they are [0, 255] uint8 grayscale.
+        processed = np.clip(pixel_array, 0, 255).astype(np.uint8)
+
+    # Resize with the same interpolation as training
+    resized = cv2.resize(processed, target_size, interpolation=cv2.INTER_AREA)
 
     transform = transforms.Compose([
         transforms.ToTensor(),               # (1, H, W) float [0,1]
