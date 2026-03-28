@@ -87,8 +87,9 @@ class InferenceService:
                 max_class = max(probs, key=probs.get)
                 max_prob = probs[max_class]
                 
-                # Threshold for "Normal"
-                if max_prob < 0.4:
+                # Increased threshold (0.5 instead of 0.4) to reduce false positives
+                # If models are uncertain, we now prefer to say NONE.
+                if max_prob < 0.5:
                     stroke_type = StrokeType.NONE
                 elif max_class == "ischemic":
                     stroke_type = StrokeType.ISCHEMIC
@@ -114,20 +115,27 @@ class InferenceService:
         is_isch = "isch" in filename.lower()
         is_hem = "hem" in filename.lower() or "bleed" in filename.lower()
         
-        # If no keywords, randomize (70% chance of normal)
+        # Heuristic: If no keywords, randomize (80% chance of normal to prevent false positives)
         if not (is_normal or is_isch or is_hem):
-            is_normal = random.random() < 0.7
+            is_normal = random.random() < 0.8
 
         if is_normal:
             stroke_type = StrokeType.NONE
             severity = SeverityLevel.NORMAL
-            max_prob = random.uniform(0.1, 0.35)
-            probs = { k: random.uniform(0.01, 0.2) for k in ["epidural", "intraparenchymal", "intraventricular", "subarachnoid", "subdural", "ischemic"] }
+            max_prob = random.uniform(0.05, 0.45)
+            # Ensure probabilities stay below the threshold
+            probs = { k: random.uniform(0.01, 0.4) for k in ["epidural", "intraparenchymal", "intraventricular", "subarachnoid", "subdural", "ischemic"] }
         else:
+            # Definite stroke mocks
             stroke_type = StrokeType.ISCHEMIC if is_isch else (StrokeType.HEMORRHAGIC if is_hem else random.choice([StrokeType.ISCHEMIC, StrokeType.HEMORRHAGIC]))
-            max_prob = random.uniform(0.7, 0.98)
+            # Bias away from "Moderate" range (0.5-0.75) to be more definitive
+            if random.random() < 0.7:
+                max_prob = random.uniform(0.76, 0.98) # High/Critical
+            else:
+                max_prob = random.uniform(0.55, 0.72) # Moderate
+                
             severity = self._compute_severity(max_prob, stroke_type)
-            probs = { k: random.uniform(0.01, 0.1) for k in ["epidural", "intraparenchymal", "intraventricular", "subarachnoid", "subdural", "ischemic"] }
+            probs = { k: random.uniform(0.01, 0.2) for k in ["epidural", "intraparenchymal", "intraventricular", "subarachnoid", "subdural", "ischemic"] }
             main_key = "ischemic" if stroke_type == StrokeType.ISCHEMIC else "intraparenchymal"
             probs[main_key] = max_prob
 
