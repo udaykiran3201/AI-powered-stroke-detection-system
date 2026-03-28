@@ -3,9 +3,11 @@
 import axios from 'axios';
 import type { DiagnosisReport, HealthResponse, UploadResponse } from '../types';
 
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+
 const api = axios.create({
-  baseURL: '/api/v1',
-  timeout: 120_000, // 2 min — model inference can be slow
+  baseURL: `${BASE_URL}/api/v1`,
+  timeout: 120_000, 
 });
 
 export async function checkHealth(): Promise<HealthResponse> {
