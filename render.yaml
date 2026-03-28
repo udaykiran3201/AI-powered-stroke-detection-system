@@ -10,3 +10,5 @@ services:
         value: 3.10.12
       - key: APP_ENV
         value: production
+      - key: ALLOWED_ORIGINS
+        value: "*"

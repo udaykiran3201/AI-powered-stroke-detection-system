@@ -10,7 +10,7 @@ import ScanViewer from './components/ScanViewer';
 import DiagnosisResults from './components/DiagnosisResults';
 import EmergencyAlert from './components/EmergencyAlert';
 import LoadingSpinner from './components/LoadingSpinner';
-import { runFullDiagnosis } from './services/api';
+import { runFullDiagnosis, BASE_URL } from './services/api';
 import type { DiagnosisReport } from './types';
 
 export default function App() {
@@ -79,8 +79,13 @@ export default function App() {
     }
   };
 
-  const overlayUrl = report ? report.segmentation.overlay_url : null;
-  const maskUrl = report ? report.segmentation.mask_url : null;
+  const overlayUrl = report?.segmentation.overlay_url 
+    ? (report.segmentation.overlay_url.startsWith('/') ? `${BASE_URL}${report.segmentation.overlay_url}` : report.segmentation.overlay_url) 
+    : null;
+    
+  const maskUrl = report?.segmentation.mask_url 
+    ? (report.segmentation.mask_url.startsWith('/') ? `${BASE_URL}${report.segmentation.mask_url}` : report.segmentation.mask_url) 
+    : null;
 
   return (
     <div className="min-h-screen flex flex-col">
