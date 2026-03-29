@@ -1,28 +1,13 @@
 """
-Stroke Detection System — Training Script for Stroke Classifier
-
-Usage:
-    python -m app.training.train_classifier \
-        --data_dir data/processed \
-        --epochs 30 \
-        --batch_size 16 \
-        --lr 1e-4
-
-This script assumes a directory structure:
-    data/processed/
-        train/
-            images/      ← CT slices (PNG)
-            labels.csv   ← scan_id, epidural, intraparenchymal, … , ischemic
-        val/
-            images/
-            labels.csv
+Stroke Detection — Professional Training Pipeline
+Optimised for: High-accuracy stroke classification on CPU (16GB RAM)
+Backbone: EfficientNet-B0 (Low memory, high precision)
+Stratification: 70/15/15 Train/Val/Test
 """
 
 import argparse
 import os
-import sys
 import time
-
 import numpy as np
 import pandas as pd
 import torch
@@ -31,21 +16,18 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
 from loguru import logger
-
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, classification_report
 from app.models.classifier import StrokeClassifier, STROKE_CLASSES, NUM_CLASSES
+import timm
 
+# ───── Config ─────
 
-# ────────────────────────────────────────
-# Dataset
-# ────────────────────────────────────────
 class StrokeDataset(Dataset):
-    """CT scan dataset with multi-label targets."""
-
-    def __init__(self, image_dir: str, labels_csv: str, transform=None):
-        self.image_dir = image_dir
-        self.df = pd.read_csv(labels_csv)
+    def __init__(self, split_dir, transform=None):
+        self.split_dir = split_dir
+        self.image_dir = os.path.join(split_dir, "images")
+        self.df = pd.read_csv(os.path.join(split_dir, "labels.csv"))
         self.transform = transform
-        self.label_cols = STROKE_CLASSES
 
     def __len__(self):
         return len(self.df)
@@ -54,143 +36,171 @@ class StrokeDataset(Dataset):
         row = self.df.iloc[idx]
         img_path = os.path.join(self.image_dir, row["scan_id"] + ".png")
         image = Image.open(img_path).convert("L")
-
+        
         if self.transform:
             image = self.transform(image)
-
-        # Duplicate to 3 channels for pretrained backbone
+        
+        # 3 channels for backbone
         image = image.repeat(3, 1, 1)
-
-        labels = torch.tensor(
-            [row[col] for col in self.label_cols], dtype=torch.float32
-        )
+        labels = torch.tensor([row[col] for col in STROKE_CLASSES], dtype=torch.float32)
         return image, labels
 
+def create_model(backbone='efficientnet_b0', num_classes=6):
+    model = StrokeClassifier(backbone_name=backbone, num_classes=num_classes, pretrained=True)
+    return model
 
-# ────────────────────────────────────────
-# Transforms
-# ────────────────────────────────────────
-train_transforms = transforms.Compose([
-    transforms.Resize((256, 256)),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomRotation(10),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485], [0.229]),
-])
+def calculate_metrics(y_true, y_pred, threshold=0.5):
+    y_pred_binary = (y_pred > threshold).astype(int)
+    
+    # Binary 'Is Stroke' vs 'Normal'
+    y_true_any = (y_true.sum(axis=1) > 0).astype(int)
+    y_pred_any = (y_pred_binary.sum(axis=1) > 0).astype(int)
+    
+    acc = accuracy_score(y_true_any, y_pred_any)
+    f1 = f1_score(y_true_any, y_pred_any, zero_division=0)
+    rec = recall_score(y_true_any, y_pred_any, zero_division=0)
+    prec = precision_score(y_true_any, y_pred_any, zero_division=0)
+    
+    return {"acc": acc, "f1": f1, "recall": rec, "precision": prec}
 
-val_transforms = transforms.Compose([
-    transforms.Resize((256, 256)),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485], [0.229]),
-])
-
-
-# ────────────────────────────────────────
-# Training loop
-# ────────────────────────────────────────
-def train_one_epoch(model, loader, criterion, optimizer, device):
+def train_epoch(model, loader, criterion, optimizer, device):
     model.train()
-    running_loss = 0.0
-    for images, labels in loader:
+    total_loss = 0
+    for i, (images, labels) in enumerate(loader):
         images, labels = images.to(device), labels.to(device)
         optimizer.zero_grad()
         outputs = model(images)
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
-        running_loss += loss.item() * images.size(0)
-    return running_loss / len(loader.dataset)
-
+        total_loss += loss.item()
+        
+        # Progress indicator every 10 batches
+        if i % 10 == 0:
+            logger.info(f"  Batch [{i}/{len(loader)}]... (Crunching images)")
+            
+    return total_loss / len(loader)
 
 def validate(model, loader, criterion, device):
     model.eval()
-    running_loss = 0.0
+    total_loss = 0
     all_preds, all_labels = [], []
     with torch.no_grad():
         for images, labels in loader:
             images, labels = images.to(device), labels.to(device)
             outputs = model(images)
             loss = criterion(outputs, labels)
-            running_loss += loss.item() * images.size(0)
-            preds = torch.sigmoid(outputs).cpu().numpy()
-            all_preds.append(preds)
+            total_loss += loss.item()
+            all_preds.append(torch.sigmoid(outputs).cpu().numpy())
             all_labels.append(labels.cpu().numpy())
-
-    avg_loss = running_loss / len(loader.dataset)
+            
+    avg_loss = total_loss / len(loader)
     all_preds = np.concatenate(all_preds)
     all_labels = np.concatenate(all_labels)
-    # Per-class AUC could be computed here with sklearn
-    return avg_loss, all_preds, all_labels
+    metrics = calculate_metrics(all_labels, all_preds)
+    return avg_loss, metrics, all_labels, all_preds
 
-
-# ────────────────────────────────────────
-# Main
-# ────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description="Train stroke classifier")
-    parser.add_argument("--data_dir", type=str, required=True)
-    parser.add_argument("--epochs", type=int, default=30)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", type=str, default="data/split_data")
+    parser.add_argument("--epochs", type=int, default=25)
     parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--backbone", type=str, default="efficientnet_b3")
-    parser.add_argument("--output_dir", type=str, default="models/weights")
+    parser.add_argument("--lr", type=float, default=2e-4)
     args = parser.parse_args()
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info(f"Device: {device}")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"Using device: {device}")
 
-    # Datasets
-    train_ds = StrokeDataset(
-        os.path.join(args.data_dir, "train", "images"),
-        os.path.join(args.data_dir, "train", "labels.csv"),
-        transform=train_transforms,
-    )
-    val_ds = StrokeDataset(
-        os.path.join(args.data_dir, "val", "images"),
-        os.path.join(args.data_dir, "val", "labels.csv"),
-        transform=val_transforms,
-    )
+    # Transforms (Stronger Augmentation)
+    train_tf = transforms.Compose([
+        transforms.Resize((256, 256)),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(15),
+        transforms.ColorJitter(brightness=0.1, contrast=0.1),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485], [0.229])
+    ])
+    
+    val_tf = transforms.Compose([
+        transforms.Resize((256, 256)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485], [0.229])
+    ])
 
-    train_loader = DataLoader(
-        train_ds, batch_size=args.batch_size, shuffle=True, num_workers=4
-    )
-    val_loader = DataLoader(
-        val_ds, batch_size=args.batch_size, shuffle=False, num_workers=4
-    )
+    # Load Splits
+    train_ds = StrokeDataset(os.path.join(args.data_dir, "train"), transform=train_tf)
+    val_ds = StrokeDataset(os.path.join(args.data_dir, "val"), transform=val_tf)
+    
+    # 16GB RAM Laptop: Keep num_workers low on Windows
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0)
 
-    # Model
-    model = StrokeClassifier(backbone_name=args.backbone).to(device)
-    criterion = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", patience=3, factor=0.5
-    )
+    # Loss with pos_weight (Balance stroke classes)
+    # Calculate pos_weight based on train dataset
+    labels = train_ds.df[STROKE_CLASSES].values
+    pos_counts = labels.sum(axis=0)
+    neg_counts = len(labels) - pos_counts
+    
+    # SAFETY: If a class has 0 samples, don't use Billions. Cap weights.
+    # We use a base weight of 1.0 and increase if needed, maxing at 10.0
+    weights_np = np.ones(NUM_CLASSES)
+    for i, count in enumerate(pos_counts):
+        if count > 0:
+            weights_np[i] = min(neg_counts[i] / (count + 1e-6), 10.0)
+    
+    pos_weight = torch.tensor(weights_np, dtype=torch.float32).to(device)
+    logger.info(f"Stable class weights (pos_weight): {pos_weight.cpu().numpy()}")
 
-    # Training
-    best_val_loss = float("inf")
-    os.makedirs(args.output_dir, exist_ok=True)
+    model = create_model().to(device)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+
+    # Training Loop
+    best_f1 = 0
+    patience = 5
+    no_improve = 0
+
+    os.makedirs("models/weights", exist_ok=True)
 
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
-        train_loss = train_one_epoch(model, train_loader, criterion, optimizer, device)
-        val_loss, _, _ = validate(model, val_loader, criterion, device)
-        scheduler.step(val_loss)
-        elapsed = time.time() - t0
+        tr_loss = train_epoch(model, train_loader, criterion, optimizer, device)
+        val_loss, metrics, y_true, y_pred = validate(model, val_loader, criterion, device)
+        scheduler.step()
+        
+        duration = time.time() - t0
+        logger.info(f"Epoch [{epoch}/{args.epochs}] — Loss: {tr_loss:.4f}/{val_loss:.4f} | Acc: {metrics['acc']:.1%} | F1: {metrics['f1']:.1%} | Rec: {metrics['recall']:.1%} | Time: {duration:.1f}s")
 
-        logger.info(
-            f"Epoch {epoch:03d}/{args.epochs} — "
-            f"train_loss={train_loss:.4f}  val_loss={val_loss:.4f}  "
-            f"time={elapsed:.1f}s"
-        )
+        if metrics['f1'] > best_f1:
+            best_f1 = metrics['f1']
+            torch.save(model.state_dict(), "models/weights/stroke_classifier.pth")
+            logger.info("✓ Better F1 reached! Model saved to models/weights/stroke_classifier.pth")
+            no_improve = 0
+        else:
+            no_improve += 1
+            if no_improve >= patience:
+                logger.info("Early stopping triggered. Finished.")
+                break
 
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            save_path = os.path.join(args.output_dir, "stroke_classifier.pth")
-            torch.save(model.state_dict(), save_path)
-            logger.info(f"✓ Best model saved → {save_path}")
-
-    logger.info("Training complete.")
-
+    # Final Test evaluation
+    logger.info("Running final evaluation on Test set...")
+    test_ds = StrokeDataset(os.path.join(args.data_dir, "test"), transform=val_tf)
+    test_loader = DataLoader(test_ds, batch_size=8, shuffle=False)
+    
+    model.load_state_dict(torch.load("models/weights/stroke_classifier.pth", weights_only=True))
+    _, test_metrics, y_t, y_p = validate(model, test_loader, criterion, device)
+    
+    logger.info("=== FINAL TEST METRICS ===")
+    logger.info(f"Accuracy:  {test_metrics['acc']:.2%}")
+    logger.info(f"F1-Score:  {test_metrics['f1']:.2%}")
+    logger.info(f"Recall:    {test_metrics['recall']:.2%}")
+    logger.info(f"Precision: {test_metrics['precision']:.2%}")
+    
+    # Detailed report for stroke subtypes
+    report = classification_report(y_t, (y_p > 0.45).astype(int), target_names=STROKE_CLASSES)
+    print("\nDetailed Per-Class Performance:")
+    print(report)
 
 if __name__ == "__main__":
     main()
